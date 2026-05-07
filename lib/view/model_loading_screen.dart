@@ -75,7 +75,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, a1, a2) => ChatScreen(router: widget.router),
-        transitionsBuilder: (_, anim, __, child) =>
+        transitionsBuilder: (_, anim, _, child) =>
             FadeTransition(opacity: anim, child: child),
         transitionDuration: const Duration(milliseconds: 400),
       ),
@@ -137,7 +137,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
   Widget _buildIcon(ColorScheme scheme) {
     return AnimatedBuilder(
       animation: _pulseAnim,
-      builder: (_, __) => Opacity(
+      builder: (_, _) => Opacity(
         opacity: _errorMessage != null ? 1.0 : _pulseAnim.value,
         child: Container(
           width: 80,
@@ -199,7 +199,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
                 ? null               // indeterminate while loading into memory
                 : _progress,
             minHeight: 8,
-            backgroundColor: scheme.surfaceVariant,
+            backgroundColor: scheme.surfaceContainerHighest,
             valueColor: AlwaysStoppedAnimation(scheme.primary),
           ),
         ),
