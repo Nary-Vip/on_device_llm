@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
 import 'package:on_dev_llm/core/enums.dart';
 import 'package:on_dev_llm/core/interface/inference_interface.dart';
@@ -21,11 +22,12 @@ class EngineRouter {
 
   final _log = Logger();
   final _battery = Battery();
+  static const _channel = MethodChannel('com.poc.ondevicellm/inference');
 
   EngineRouter({
     required this.onDevice,
     required this.cloud,
-    this.minFreeRamBytes = 10000 * 1024 * 1024,
+    this.minFreeRamBytes = 500 * 1024 * 1024,
     this.minBatteryPercent = 20,
     this.respectLowPowerMode = true,
   });
@@ -75,13 +77,13 @@ class EngineRouter {
     }
 
     // 2. RAM check
-    if (!_hasEnoughRam()) {
+    if (!await _hasEnoughRam()) {
       _log.d('Routing to cloud: insufficient RAM');
       return false;
     }
 
     // 3. Thermal / heat check
-    if (_isDeviceThrottling()) {
+    if (await _isDeviceThrottling()) {
       _log.d('Routing to cloud: device throttling');
       return false;
     }
@@ -101,29 +103,63 @@ class EngineRouter {
     return true;
   }
 
-  bool _hasEnoughRam() {
+  Future<bool> _hasEnoughRam() async {
     try {
-      final freeRam = ProcessInfo.currentRss;
-      // TODO(optimisation): Better approach to choose Native Method get exact free RAM.
-      return freeRam < minFreeRamBytes;
+      if (Platform.isAndroid) {
+        final freeRam = await _channel.invokeMethod<int>('getFreeRam') ?? 0;
+        final isLowMemory = await _channel.invokeMethod<bool>('isLowMemory') ?? false;
+
+        _log.d('Free RAM: ${(freeRam / 1024 / 1024).toStringAsFixed(0)} MB'
+               ' | Low memory: $isLowMemory');
+
+        if (isLowMemory) return false;
+        return freeRam >= minFreeRamBytes;
+      }
+
+      if (Platform.isIOS) {
+        // TODO(optimisation): Check for iOS implementation (as of now no).
+         final appRam = ProcessInfo.currentRss;
+        _log.d('iOS app RSS: ${(appRam / 1024 / 1024).toStringAsFixed(0)} MB');
+        return appRam < minFreeRamBytes; 
+      }
+
+      return true;
     } catch (e) {
       _log.w('RAM check failed, assuming sufficient: $e');
       return true;
     }
   }
 
-  bool _isDeviceThrottling() {
+
+  Future<bool> _isDeviceThrottling() async {
     try {
-      if (Platform.isIOS) {
-        return false; // handled in _hasSufficientBattery
+      if (Platform.isAndroid) {
+        final status = await _channel.invokeMethod<int>('getThermalStatus') ?? 0;
+        // REFERENCE
+        // THERMAL_STATUS_NONE     = 0  → no throttling
+        // THERMAL_STATUS_LIGHT    = 1  → minor throttling
+        // THERMAL_STATUS_MODERATE = 2  → moderate throttling
+        // THERMAL_STATUS_SEVERE   = 3  → severe throttling
+        // THERMAL_STATUS_CRITICAL = 4  → critical
+        // THERMAL_STATUS_EMERGENCY = 5 → emergency shutdown imminent
+        // THERMAL_STATUS_SHUTDOWN  = 6 → shutdown
+        final isThrottling = status >= 2;
+
+        _log.d('Android thermal status: $status | throttling: $isThrottling');
+        return isThrottling;
       }
-      // TODO(optimisation): Better approach to choose Native Method get exact free RAM. (read /sys/class/thermal/thermal_zone*/temp)
+
+      if (Platform.isIOS) {
+        return false;
+      }
+
       return false;
     } catch (e) {
       _log.w('Thermal check failed, assuming ok: $e');
       return false;
     }
   }
+
 
   Future<bool> _hasSufficientBattery() async {
       try {

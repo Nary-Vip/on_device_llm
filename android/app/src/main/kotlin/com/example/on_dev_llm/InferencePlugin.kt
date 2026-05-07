@@ -21,6 +21,10 @@ import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import android.util.Log
+import android.app.ActivityManager
+import android.os.Build
+import android.os.PowerManager
+
 
 class InferencePlugin : FlutterPlugin, MethodCallHandler {
 
@@ -88,6 +92,9 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
             "initialize"      -> handleInitialize(call, result)
             "startGeneration" -> handleStartGeneration(call, result)
             "dispose"         -> { teardown(); result.success(null) }
+            "getFreeRam"      -> handleGetFreeRam(result)
+            "isLowMemory"     -> handleIsLowMemory(result)
+            "getThermalStatus" -> handleGetThermalStatus(result)
             else              -> result.notImplemented()
         }
     }
@@ -142,7 +149,6 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
                         .setTemperature(0.8f)
                         .setTopP(0.95f)
                         .setRandomSeed(42)
-                        .setMaxTokens(maxTokens) 
                         .build()
                 )
                 session = currentSession
@@ -297,6 +303,42 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
             session = null
             llmInference?.close()
             llmInference = null
+        }
+    }
+
+    private fun handleGetFreeRam(result: MethodChannel.Result) {
+        try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(memInfo)
+            result.success(memInfo.availMem) 
+        } catch (e: Exception) {
+            result.error("RAM_ERROR", e.message, null)
+        }
+    }
+
+    private fun handleIsLowMemory(result: MethodChannel.Result) {
+        try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(memInfo)
+            result.success(memInfo.lowMemory)
+        } catch (e: Exception) {
+            result.error("RAM_ERROR", e.message, null)
+        }
+    }
+
+    // ─── Thermal check ───────────────────────────────────────────────────────────
+    private fun handleGetThermalStatus(result: MethodChannel.Result) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {  // Android 10+
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                result.success(powerManager.currentThermalStatus)
+            } else {
+                result.success(0)
+            }
+        } catch (e: Exception) {
+            result.error("THERMAL_ERROR", e.message, null)
         }
     }
 }

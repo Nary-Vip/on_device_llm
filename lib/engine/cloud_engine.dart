@@ -20,7 +20,7 @@ class CloudEngine implements InferenceEngine {
 
   CloudEngine({
     required this.apiKey,
-    this.model = 'gemini-2.0-flash',
+    this.model = 'gemini-2.5-flash-lite',
   });
 
   @override
