@@ -158,7 +158,7 @@ class CloudEngine implements InferenceEngine {
 
       return TokenChunk(text, isDone: isDone);
     } catch (e) {
-      _log.v('SSE parse skip: $e  line: $line');
+      _log.t('SSE parse skip: $e  line: $line');
       return null;
     }
   }

@@ -183,7 +183,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
     return Text(
       text,
       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: scheme.onSurface.withOpacity(0.6),
+            color: scheme.onSurface.withValues(alpha: 0.6),
           ),
       textAlign: TextAlign.center,
     );
@@ -213,7 +213,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
         'Warming up…',
         style: TextStyle(
           fontSize: 13,
-          color: scheme.onSurface.withOpacity(0.5),
+          color: scheme.onSurface.withValues(alpha: 0.5),
         ),
       );
     }
@@ -233,7 +233,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
           _estimateRemaining(),
           style: TextStyle(
             fontSize: 13,
-            color: scheme.onSurface.withOpacity(0.5),
+            color: scheme.onSurface.withValues(alpha: 0.5),
           ),
         ),
       ],
@@ -246,7 +246,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: scheme.errorContainer.withOpacity(0.4),
+            color: scheme.errorContainer.withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
@@ -273,7 +273,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
           onPressed: _retryOrSkip,
           child: Text(
             'Skip — use cloud for now',
-            style: TextStyle(color: scheme.onSurface.withOpacity(0.5)),
+            style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.5)),
           ),
         ),
         const SizedBox(height: 4),
@@ -281,7 +281,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
           'The model will finish downloading in the background',
           style: TextStyle(
             fontSize: 11,
-            color: scheme.onSurface.withOpacity(0.35),
+            color: scheme.onSurface.withValues(alpha: 0.35),
           ),
           textAlign: TextAlign.center,
         ),

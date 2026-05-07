@@ -180,7 +180,7 @@ class _MetaBadge extends StatelessWidget {
       '$label · TTFT ${ms}ms',
       style: TextStyle(
         fontSize: 11,
-        color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+        color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
       ),
     );
   }
