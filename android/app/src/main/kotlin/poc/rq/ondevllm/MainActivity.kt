@@ -1,4 +1,4 @@
-package com.example.on_dev_llm
+package poc.rq.ondevllm
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

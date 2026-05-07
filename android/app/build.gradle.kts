@@ -13,7 +13,7 @@ kotlin {
 
 
 android {
-    namespace = "com.example.on_dev_llm"
+    namespace = "poc.rq.ondevllm"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -24,7 +24,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.on_dev_llm"
+        applicationId = "poc.rq.ondevllm"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
