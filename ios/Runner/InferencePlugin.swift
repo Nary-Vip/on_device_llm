@@ -456,25 +456,28 @@ private class AppleIntelligenceBackend: OnDeviceBackend {
 
 // ─── Tier 2 — MediaPipe backend ───────────────────────────────────────────────
 
+
 private class MediaPipeBackend: OnDeviceBackend {
-    private var inference: LlmInference
+    private let modelPath: String 
 
     init(modelPath: String) throws {
+        self.modelPath = modelPath
         let options = LlmInference.Options(modelPath: modelPath)
         options.maxTokens = 1024
-        inference = try LlmInference(options: options)
+        _ = try LlmInference(options: options)
     }
 
-    func prewarm() async {
-        // MediaPipe has no explicit prewarm — first token handles it
-    }
+    func prewarm() async {}
 
     func streamResponse(to prompt: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            // generateResponseAsync returns an AsyncThrowingStream directly
-            let stream = self.inference.generateResponseAsync(inputText: prompt)
             Task {
                 do {
+                    let options = LlmInference.Options(modelPath: self.modelPath)
+                    options.maxTokens = 1024
+                    let inference = try LlmInference(options: options)
+
+                    let stream = inference.generateResponseAsync(inputText: prompt)
                     for try await partial in stream {
                         continuation.yield(partial)
                     }
@@ -486,9 +489,7 @@ private class MediaPipeBackend: OnDeviceBackend {
         }
     }
 
-    func close() {
-        // LlmInference is deallocated by ARC — nothing to call explicitly
-    }
+    func close() {}
 }
 
 // ─── Download progress delegate ───────────────────────────────────────────────
