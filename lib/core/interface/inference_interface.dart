@@ -49,4 +49,6 @@ abstract class InferenceEngine {
   Future<void> deleteModel();
 
   String get modelId;
+
+  Future<int?> modelSizeBytes();
 }

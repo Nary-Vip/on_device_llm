@@ -260,10 +260,12 @@ public class InferencePlugin: NSObject, FlutterPlugin {
             continuation in
 
             self.progressDelegate = ProgressDelegate(
-                onProgress: { [weak self] progress in
+                onProgress: { [weak self] progress, downloaded, total in
                     self?.sendProgress(
                         progress,
-                        phase: "downloading"
+                        phase: "downloading",
+                        downloadedBytes: downloaded,
+                        totalBytes: total
                     )
                 },
                 onComplete: { [weak self] location, response, error in
@@ -374,9 +376,12 @@ public class InferencePlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func sendProgress(_ value: Double, phase: String) {
+    private func sendProgress(_ value: Double, phase: String, downloadedBytes: Int64 = 0, totalBytes: Int64 = 0) {
         DispatchQueue.main.async { [weak self] in
-            self?.progressSink?(["progress": value, "phase": phase])
+            self?.progressSink?(["progress": value, "phase": phase,
+            "downloadedBytes" : downloadedBytes,
+            "totalBytes"      : totalBytes
+        ])
         }
     }
 
@@ -492,13 +497,13 @@ private class ProgressDelegate:
     NSObject,
     URLSessionDownloadDelegate {
 
-    private let onProgress: (Double) -> Void
+    private let onProgress: (Double, Int64, Int64) -> Void  
 
     private let onComplete:
         (URL?, URLResponse?, Error?) -> Void
 
     init(
-        onProgress: @escaping (Double) -> Void,
+        onProgress: @escaping (Double, Int64, Int64) -> Void,
         onComplete: @escaping (
             URL?,
             URLResponse?,
@@ -522,10 +527,8 @@ private class ProgressDelegate:
             return
         }
 
-        onProgress(
-            Double(totalBytesWritten)
-            / Double(totalBytesExpectedToWrite)
-        )
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        onProgress(progress, totalBytesWritten, totalBytesExpectedToWrite) 
     }
 
     func urlSession(

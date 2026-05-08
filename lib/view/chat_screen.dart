@@ -37,7 +37,7 @@ class _ChatScreenState extends State<ChatScreen> {
     while (mounted && _router.onDevice.status == ModelStatus.loading) {
       await Future.delayed(const Duration(milliseconds: 500));
     }
-    if (mounted) setState(() {}); // triggers rebuild with correct status
+    if (mounted) setState(() {});
   }
 
   Future<void> _checkModelStatus() async {

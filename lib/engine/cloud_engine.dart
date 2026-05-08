@@ -7,7 +7,6 @@ import 'package:logger/logger.dart';
 import 'package:on_dev_llm/core/enums.dart';
 import 'package:on_dev_llm/core/interface/inference_interface.dart';
 
-
 class CloudEngine implements InferenceEngine {
   final String apiKey;
   final String model;
@@ -18,10 +17,7 @@ class CloudEngine implements InferenceEngine {
   final _log = Logger();
   ModelStatus _status = ModelStatus.notLoaded;
 
-  CloudEngine({
-    required this.apiKey,
-    this.model = 'gemini-2.5-flash-lite',
-  });
+  CloudEngine({required this.apiKey, this.model = 'gemini-2.5-flash-lite'});
 
   @override
   InferenceBackend get backend => InferenceBackend.cloud;
@@ -36,7 +32,9 @@ class CloudEngine implements InferenceEngine {
   Future<void> initialize() async {
     _status = apiKey.isNotEmpty ? ModelStatus.ready : ModelStatus.failed;
     if (_status == ModelStatus.failed) {
-      _log.e('CloudEngine: apiKey is empty — get a free key at aistudio.google.com');
+      _log.e(
+        'CloudEngine: apiKey is empty — get a free key at aistudio.google.com',
+      );
     }
   }
 
@@ -48,9 +46,15 @@ class CloudEngine implements InferenceEngine {
   // ─── Streaming ─────────────────────────────────────────────────────────────
 
   @override
-  Stream<TokenChunk> generateStream(String prompt, {int maxTokens = 512}) async* {
+  Stream<TokenChunk> generateStream(
+    String prompt, {
+    int maxTokens = 512,
+  }) async* {
     if (_status != ModelStatus.ready) {
-      yield TokenChunk('[Cloud engine not ready — check your API key]', isDone: true);
+      yield TokenChunk(
+        '[Cloud engine not ready — check your API key]',
+        isDone: true,
+      );
       return;
     }
 
@@ -65,14 +69,11 @@ class CloudEngine implements InferenceEngine {
           {
             'role': 'user',
             'parts': [
-              {'text': prompt}
+              {'text': prompt},
             ],
-          }
+          },
         ],
-        'generationConfig': {
-          'maxOutputTokens': maxTokens,
-          'temperature': 0.7,
-        },
+        'generationConfig': {'maxOutputTokens': maxTokens, 'temperature': 0.7},
       });
 
     final client = http.Client();
@@ -86,9 +87,10 @@ class CloudEngine implements InferenceEngine {
         return;
       }
 
-      await for (final line in response.stream
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
+      await for (final line
+          in response.stream
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
         final chunk = _parseSseLine(line);
         if (chunk != null) {
           yield chunk;
@@ -155,7 +157,8 @@ class CloudEngine implements InferenceEngine {
           : '';
 
       final finishReason = candidate['finishReason'] as String?;
-      final isDone = finishReason == 'STOP' ||
+      final isDone =
+          finishReason == 'STOP' ||
           finishReason == 'MAX_TOKENS' ||
           finishReason == 'SAFETY';
 
@@ -167,14 +170,19 @@ class CloudEngine implements InferenceEngine {
   }
 
   int _estimateTokens(String text) => (text.length / 4).round();
-  
+
   @override
   Future<void> deleteModel() {
     throw UnimplementedError();
   }
-  
+
   @override
   Future<bool> isModelDownloaded() {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<int?> modelSizeBytes() async {
     throw UnimplementedError();
   }
 }

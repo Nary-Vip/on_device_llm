@@ -132,20 +132,32 @@ class OnDeviceEngine implements InferenceEngine {
         );
       });
 
+  Future<File> _modelFile() async {
+    final Directory dir;
+    if (Platform.isIOS) {
+      dir = await getApplicationDocumentsDirectory();
+    } else {
+      dir = await getApplicationSupportDirectory();
+    }
+    return File('${dir.path}/models/${_modelId()}.task');
+  }
+
   @override
   Future<bool> isModelDownloaded() async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File('${dir.path}/models/${_modelId()}.task');
+    final file = await _modelFile();
     return file.existsSync();
   }
 
-  // /data/user/0/poc.rq.ondevllm/app_flutter/models/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task
-
   @override
   Future<void> deleteModel() async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File('${dir.path}/models/${_modelId()}.task');
+    final file = await _modelFile();
     if (file.existsSync()) file.deleteSync();
     _status = ModelStatus.notLoaded;
+  }
+
+  @override
+  Future<int?> modelSizeBytes() async {
+    final file = await _modelFile();
+    return file.existsSync() ? file.lengthSync() : null;
   }
 }
