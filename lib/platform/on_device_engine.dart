@@ -4,13 +4,18 @@ import 'package:logger/logger.dart';
 import 'package:on_dev_llm/core/enums.dart';
 import 'package:on_dev_llm/core/interface/inference_interface.dart';
 import 'package:on_dev_llm/core/models/model_progress.dart';
-
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
 class OnDeviceEngine implements InferenceEngine {
   // These names must exactly match what the Kotlin side registers
   static const _methodChannel = MethodChannel('com.poc.ondevicellm/inference');
-  static const _eventChannel  = EventChannel('com.poc.ondevicellm/inference_stream');
-  static const _progressChannel = EventChannel('com.poc.ondevicellm/model_progress');
+  static const _eventChannel = EventChannel(
+    'com.poc.ondevicellm/inference_stream',
+  );
+  static const _progressChannel = EventChannel(
+    'com.poc.ondevicellm/model_progress',
+  );
 
   final _log = Logger();
   ModelStatus _status = ModelStatus.notLoaded;
@@ -28,10 +33,10 @@ class OnDeviceEngine implements InferenceEngine {
     _status = ModelStatus.loading;
     try {
       await _methodChannel.invokeMethod<Map>('initialize', {
-        'modelId'     : _modelId(),
-        'source'      : 'download',
-        'downloadUrl' : _downloadUrl(),
-        'hf_token': '***REMOVED_HF_TOKEN***'
+        'modelId': _modelId(),
+        'source': 'download',
+        'downloadUrl': _downloadUrl(),
+        'hf_token': '***REMOVED_HF_TOKEN***',
       });
       _status = ModelStatus.ready;
       _log.i('OnDeviceEngine: model ready');
@@ -49,7 +54,7 @@ class OnDeviceEngine implements InferenceEngine {
     // Tell native to start generating — fire and forget, tokens come
     // back through the EventChannel below
     _methodChannel.invokeMethod('startGeneration', {
-      'prompt'   : prompt,
+      'prompt': prompt,
       'maxTokens': maxTokens,
     });
 
@@ -58,7 +63,7 @@ class OnDeviceEngine implements InferenceEngine {
         .map((event) {
           if (event is! Map) return TokenChunk('', isDone: true);
           final text = event['token'] as String? ?? '';
-          final done = event['done']  as bool?   ?? false;
+          final done = event['done'] as bool? ?? false;
           return TokenChunk(text, isDone: done);
         })
         .takeWhile((chunk) => !chunk.isDone);
@@ -74,19 +79,19 @@ class OnDeviceEngine implements InferenceEngine {
     int tokenCount = 0;
 
     await for (final chunk in generateStream(prompt, maxTokens: maxTokens)) {
-      ttft ??= sw.elapsed;   // first token
+      ttft ??= sw.elapsed; // first token
       buffer.write(chunk.text);
       tokenCount++;
     }
 
     final elapsed = sw.elapsed;
     return InferenceResult(
-      fullText          : buffer.toString(),
-      timeToFirstToken  : ttft ?? elapsed,
-      tokensPerSecond   : tokenCount / elapsed.inSeconds.clamp(1, 99999),
-      promptTokens      : _estimateTokens(prompt),
-      completionTokens  : tokenCount,
-      backend           : InferenceBackend.onDevice,
+      fullText: buffer.toString(),
+      timeToFirstToken: ttft ?? elapsed,
+      tokensPerSecond: tokenCount / elapsed.inSeconds.clamp(1, 99999),
+      promptTokens: _estimateTokens(prompt),
+      completionTokens: tokenCount,
+      backend: InferenceBackend.onDevice,
     );
   }
 
@@ -102,20 +107,45 @@ class OnDeviceEngine implements InferenceEngine {
 
   String _modelId() => 'Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048';
 
+  @override
+  String get modelId => _modelId();
+
   String _downloadUrl() =>
-    'https://huggingface.co/litert-community/Gemma3-1B-IT'
-    '/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task';
+      'https://huggingface.co/litert-community/Gemma3-1B-IT'
+      '/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task';
 
   // Rough token count — 1 token ≈ 4 characters
   int _estimateTokens(String text) => (text.length / 4).round();
 
   Stream<ModelProgress> get progressStream =>
-    _progressChannel.receiveBroadcastStream().map((event) {
-      if (event is! Map) return const ModelProgress(0, ModelPhase.downloading);
-      return ModelProgress(
-        (event['progress'] as num?)?.toDouble() ?? 0.0,
-        event['phase'] == 'loading' ? ModelPhase.loading : ModelPhase.downloading,
-      );
-    });
+      _progressChannel.receiveBroadcastStream().map((event) {
+        if (event is! Map) {
+          return const ModelProgress(0, ModelPhase.downloading);
+        }
+        return ModelProgress(
+          (event['progress'] as num?)?.toDouble() ?? 0.0,
+          event['phase'] == 'loading'
+              ? ModelPhase.loading
+              : ModelPhase.downloading,
+          downloadedBytes: (event['downloadedBytes'] as num?)?.toInt() ?? 0,
+          totalBytes: (event['totalBytes'] as num?)?.toInt() ?? 0,
+        );
+      });
 
+  @override
+  Future<bool> isModelDownloaded() async {
+    final dir = await getApplicationSupportDirectory();
+    final file = File('${dir.path}/models/${_modelId()}.task');
+    return file.existsSync();
+  }
+
+  // /data/user/0/poc.rq.ondevllm/app_flutter/models/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task
+
+  @override
+  Future<void> deleteModel() async {
+    final dir = await getApplicationSupportDirectory();
+    final file = File('${dir.path}/models/${_modelId()}.task');
+    if (file.existsSync()) file.deleteSync();
+    _status = ModelStatus.notLoaded;
+  }
 }

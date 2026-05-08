@@ -107,20 +107,24 @@ class EngineRouter {
     try {
       if (Platform.isAndroid) {
         final freeRam = await _channel.invokeMethod<int>('getFreeRam') ?? 0;
-        final isLowMemory = await _channel.invokeMethod<bool>('isLowMemory') ?? false;
+        final isLowMemory =
+            await _channel.invokeMethod<bool>('isLowMemory') ?? false;
 
-        _log.d('Free RAM: ${(freeRam / 1024 / 1024).toStringAsFixed(0)} MB'
-               ' | Low memory: $isLowMemory');
+        _log.d(
+          'Free RAM: ${(freeRam / 1024 / 1024).toStringAsFixed(0)} MB'
+          ' | Low memory: $isLowMemory',
+        );
 
         if (isLowMemory) return false;
         return freeRam >= minFreeRamBytes;
       }
 
       if (Platform.isIOS) {
+        return true;
         // TODO(optimisation): Check for iOS implementation (as of now no).
-         final appRam = ProcessInfo.currentRss;
+        final appRam = ProcessInfo.currentRss;
         _log.d('iOS app RSS: ${(appRam / 1024 / 1024).toStringAsFixed(0)} MB');
-        return appRam < minFreeRamBytes; 
+        return appRam < minFreeRamBytes;
       }
 
       return true;
@@ -130,11 +134,11 @@ class EngineRouter {
     }
   }
 
-
   Future<bool> _isDeviceThrottling() async {
     try {
       if (Platform.isAndroid) {
-        final status = await _channel.invokeMethod<int>('getThermalStatus') ?? 0;
+        final status =
+            await _channel.invokeMethod<int>('getThermalStatus') ?? 0;
         // REFERENCE
         // THERMAL_STATUS_NONE     = 0  → no throttling
         // THERMAL_STATUS_LIGHT    = 1  → minor throttling
@@ -160,21 +164,20 @@ class EngineRouter {
     }
   }
 
-
   Future<bool> _hasSufficientBattery() async {
-      try {
-        final level = await _battery.batteryLevel;
-        final state = await _battery.batteryState;
+    try {
+      final level = await _battery.batteryLevel;
+      final state = await _battery.batteryState;
 
-        final isCharging =
-            state == BatteryState.charging || state == BatteryState.full;
+      final isCharging =
+          state == BatteryState.charging || state == BatteryState.full;
 
-        if (isCharging) return true;
-        return level >= minBatteryPercent;
-      } catch (e) {
-        _log.w('Battery check failed, assuming sufficient: $e');
-        return true;
-      }
+      if (isCharging) return true;
+      return level >= minBatteryPercent;
+    } catch (e) {
+      _log.w('Battery check failed, assuming sufficient: $e');
+      return true;
+    }
   }
 
   Future<bool> _isLowPowerMode() async {

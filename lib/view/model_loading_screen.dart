@@ -2,20 +2,13 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:on_dev_llm/core/engine_router.dart';
+import 'package:on_dev_llm/core/app_scope.dart';
 import 'package:on_dev_llm/core/models/model_progress.dart';
 import 'package:on_dev_llm/platform/on_device_engine.dart';
 import 'package:on_dev_llm/view/chat_screen.dart';
 
 class ModelLoadingScreen extends StatefulWidget {
-  final OnDeviceEngine onDevice;
-  final EngineRouter router;
-
-  const ModelLoadingScreen({
-    super.key,
-    required this.onDevice,
-    required this.router,
-  });
+  const ModelLoadingScreen({super.key});
 
   @override
   State<ModelLoadingScreen> createState() => _ModelLoadingScreenState();
@@ -23,18 +16,23 @@ class ModelLoadingScreen extends StatefulWidget {
 
 class _ModelLoadingScreenState extends State<ModelLoadingScreen>
     with SingleTickerProviderStateMixin {
-
   double _progress = 0;
   ModelPhase _phase = ModelPhase.downloading;
   String? _errorMessage;
   StreamSubscription<ModelProgress>? _sub;
+  int _downloadedBytes = 0;
+  int _totalBytes = 0;
 
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnim;
 
+  late final OnDeviceEngine _onDevice;
+
   @override
   void initState() {
     super.initState();
+    final scope = context.getInheritedWidgetOfExactType<AppScope>()!;
+    _onDevice = scope.onDevice;
 
     _pulseController = AnimationController(
       vsync: this,
@@ -49,12 +47,14 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
   }
 
   void _startListening() {
-    _sub = widget.onDevice.progressStream.listen(
+    _sub = _onDevice.progressStream.listen(
       (event) {
         if (!mounted) return;
         setState(() {
           _progress = event.value;
           _phase = event.phase;
+          _downloadedBytes = event.downloadedBytes;
+          _totalBytes = event.totalBytes;
         });
 
         // When loading phase hits 1.0, model is in memory — go to chat
@@ -74,7 +74,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        pageBuilder: (_, a1, a2) => ChatScreen(router: widget.router),
+        pageBuilder: (_, a1, a2) => ChatScreen(),
         transitionsBuilder: (_, anim, _, child) =>
             FadeTransition(opacity: anim, child: child),
         transitionDuration: const Duration(milliseconds: 400),
@@ -85,7 +85,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
   void _retryOrSkip() {
     // On error: skip on-device, go straight to chat with cloud-only router
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => ChatScreen(router: widget.router)),
+      MaterialPageRoute(builder: (_) => ChatScreen()),
     );
   }
 
@@ -167,24 +167,30 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
       _errorMessage != null
           ? 'Download failed'
           : _phase == ModelPhase.downloading
-              ? 'Downloading model'
-              : 'Loading into memory',
-      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          ? 'Downloading model'
+          : 'Loading into memory',
+      style: Theme.of(
+        context,
+      ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
       textAlign: TextAlign.center,
     );
   }
 
   Widget _buildSubtitle(ColorScheme scheme) {
-    final text = _phase == ModelPhase.downloading
-        ? 'Gemma 2B · ~1.5 GB · one-time download'
-        : 'Initialising on-device inference…';
+    String sizeLabel = 'Gemma 3 1B';
+    if (_totalBytes > 0) {
+      sizeLabel += ' · ${_formatBytes(_totalBytes)}';
+      if (_phase == ModelPhase.downloading) {
+        sizeLabel += ' · one-time download';
+      }
+    }
     return Text(
-      text,
+      _phase == ModelPhase.downloading
+          ? sizeLabel
+          : 'Initialising on-device inference…',
       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: scheme.onSurface.withValues(alpha: 0.6),
-          ),
+        color: scheme.onSurface.withValues(alpha: 0.6),
+      ),
       textAlign: TextAlign.center,
     );
   }
@@ -196,7 +202,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
           borderRadius: BorderRadius.circular(8),
           child: LinearProgressIndicator(
             value: _phase == ModelPhase.loading && _progress < 1.0
-                ? null               // indeterminate while loading into memory
+                ? null // indeterminate while loading into memory
                 : _progress,
             minHeight: 8,
             backgroundColor: scheme.surfaceContainerHighest,
@@ -217,7 +223,12 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
         ),
       );
     }
+
     final pct = (_progress * 100).toStringAsFixed(0);
+    final sizeLabel = _totalBytes > 0
+        ? '${_formatBytes(_downloadedBytes)} / ${_formatBytes(_totalBytes)}'
+        : _estimateRemaining();
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -230,7 +241,7 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
           ),
         ),
         Text(
-          _estimateRemaining(),
+          sizeLabel,
           style: TextStyle(
             fontSize: 13,
             color: scheme.onSurface.withValues(alpha: 0.5),
@@ -238,6 +249,15 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
         ),
       ],
     );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   Widget _buildError(ColorScheme scheme) {

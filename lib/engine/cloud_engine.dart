@@ -30,6 +30,9 @@ class CloudEngine implements InferenceEngine {
   ModelStatus get status => _status;
 
   @override
+  String get modelId => model;
+
+  @override
   Future<void> initialize() async {
     _status = apiKey.isNotEmpty ? ModelStatus.ready : ModelStatus.failed;
     if (_status == ModelStatus.failed) {
@@ -164,4 +167,14 @@ class CloudEngine implements InferenceEngine {
   }
 
   int _estimateTokens(String text) => (text.length / 4).round();
+  
+  @override
+  Future<void> deleteModel() {
+    throw UnimplementedError();
+  }
+  
+  @override
+  Future<bool> isModelDownloaded() {
+    throw UnimplementedError();
+  }
 }

@@ -1,4 +1,4 @@
-package com.example.on_dev_llm
+package poc.rq.ondevllm
 
 import android.content.Context
 import android.os.Handler
@@ -137,21 +137,20 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
             }
 
             try {
-                // Close previous session before opening a new one
-                session?.close()
-                session = null
-
                 // Create a fresh session for this request
-                val currentSession = LlmInferenceSession.createFromOptions(
-                    engine,
-                    LlmInferenceSessionOptions.builder()
-                        .setTopK(40)
-                        .setTemperature(0.8f)
-                        .setTopP(0.95f)
-                        .setRandomSeed(42)
-                        .build()
-                )
-                session = currentSession
+                if (session == null) {
+                    session = LlmInferenceSession.createFromOptions(
+                        engine,
+                        LlmInferenceSessionOptions.builder()
+                            .setTopK(40)
+                            .setTemperature(0.8f)
+                            .setTopP(0.95f)
+                            .setRandomSeed(42)
+                            .build()
+                    )
+                }
+
+                val currentSession = session!!
 
                 // Feed the prompt
                 currentSession.addQueryChunk(prompt)
@@ -243,7 +242,9 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
                                 if (total > 0) {
                                     sendProgress(
                                         downloaded.toDouble() / total,
-                                        "downloading"
+                                        "downloading",
+                                        downloaded,
+                                        total
                                     )
                                 }
                             }
@@ -285,9 +286,9 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    private fun sendProgress(progress: Double, phase: String) {
+    private fun sendProgress(progress: Double, phase: String, downloadedBytes: Long = 0, totalBytes: Long = 0) {
         mainHandler.post {
-            progressSink?.success(mapOf("progress" to progress, "phase" to phase))
+            progressSink?.success(mapOf("progress" to progress, "phase" to phase, "downloadedBytes" to downloadedBytes, "totalBytes" to totalBytes))
         }
     }
 
