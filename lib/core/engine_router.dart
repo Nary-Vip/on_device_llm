@@ -120,11 +120,12 @@ class EngineRouter {
       }
 
       if (Platform.isIOS) {
-        return true;
-        // TODO(optimisation): Check for iOS implementation (as of now no).
-        final appRam = ProcessInfo.currentRss;
-        _log.d('iOS app RSS: ${(appRam / 1024 / 1024).toStringAsFixed(0)} MB');
-        return appRam < minFreeRamBytes;
+        final freeRam = await _channel.invokeMethod<int>('getFreeRam') ?? 0;
+        final isLowMemory = await _channel.invokeMethod<bool>('isLowMemory') ?? false;
+        _log.d('iOS free RAM: ${(freeRam / 1024 / 1024).toStringAsFixed(0)} MB'
+              ' | Low memory: $isLowMemory');
+        if (isLowMemory) return false;
+        return freeRam >= minFreeRamBytes;
       }
 
       return true;
@@ -136,9 +137,8 @@ class EngineRouter {
 
   Future<bool> _isDeviceThrottling() async {
     try {
+      final status = await _channel.invokeMethod<int>('getThermalStatus') ?? 0;
       if (Platform.isAndroid) {
-        final status =
-            await _channel.invokeMethod<int>('getThermalStatus') ?? 0;
         // REFERENCE
         // THERMAL_STATUS_NONE     = 0  → no throttling
         // THERMAL_STATUS_LIGHT    = 1  → minor throttling
@@ -154,9 +154,12 @@ class EngineRouter {
       }
 
       if (Platform.isIOS) {
-        return false;
+        // iOS: 0=nominal, 1=fair, 2=serious, 3=critical
+        // Throttle on-device at .serious (2) and above
+        final isThrottling = status >= 2;
+        _log.d('iOS thermal status: $status | throttling: $isThrottling');
+        return isThrottling;
       }
-
       return false;
     } catch (e) {
       _log.w('Thermal check failed, assuming ok: $e');

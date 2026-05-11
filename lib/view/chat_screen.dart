@@ -245,7 +245,7 @@ class _ChatScreenState extends State<ChatScreen> {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (_, a1, a2) => ModelLoadingScreen(),
-          transitionsBuilder: (_, anim, __, child) =>
+          transitionsBuilder: (_, anim, _, child) =>
               FadeTransition(opacity: anim, child: child),
           transitionDuration: const Duration(milliseconds: 300),
         ),
@@ -852,44 +852,6 @@ class _RuntimePill extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-// ─── Switching banner ─────────────────────────────────────────────────────────
-
-class _SwitchingBanner extends StatelessWidget {
-  final OnDeviceRuntime runtime;
-  const _SwitchingBanner({required this.runtime});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final label = runtime == OnDeviceRuntime.litert
-        ? 'Switching to LiteRT-LM (Gemma 4)…'
-        : 'Switching to MediaPipe (Gemma 3)…';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: scheme.tertiaryContainer.withValues(alpha: 0.6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.5,
-              color: scheme.onTertiaryContainer,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: TextStyle(fontSize: 12, color: scheme.onTertiaryContainer),
-          ),
-        ],
       ),
     );
   }

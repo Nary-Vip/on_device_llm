@@ -1,11 +1,9 @@
 import Flutter
 import Foundation
 import MediaPipeTasksGenAI
+import Darwin
+#if canImport(FoundationModels)
 import FoundationModels
-
-// ─── Availability shim ────────────────────────────────────────────────────────
-// Import FoundationModels only when building for iOS 26+
-// Else similar implementation of Android.
 
 private protocol OnDeviceBackend {
     func prewarm() async
@@ -40,6 +38,16 @@ public class InferencePlugin: NSObject, FlutterPlugin {
         print("InferencePlugin registered")
         let instance = InferencePlugin()
         let messenger = registrar.messenger()
+
+        NotificationCenter.default.addObserver(
+            forName: ProcessInfo.thermalStateDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak instance] _ in
+            // Log it — EngineRouter will re-check on next request automatically
+            let state = ProcessInfo.processInfo.thermalState
+            print("[InferencePlugin] Thermal state changed: \(state)")
+        }
 
         instance.methodChannel = FlutterMethodChannel(
             name: methodChannelName, binaryMessenger: messenger)
@@ -386,21 +394,68 @@ public class InferencePlugin: NSObject, FlutterPlugin {
     }
 
     private func getFreeRam() -> Int64 {
-        var info = mach_task_basic_info()
+        var pagesize: vm_size_t = 0
+        let hostPort = mach_host_self()
+        host_page_size(hostPort, &pagesize)
+
+        // vm_statistics_data_t gives system-wide page counts
+        var vmStat = vm_statistics_data_t()
         var count = mach_msg_type_number_t(
-            MemoryLayout<mach_task_basic_info>.size) / 4
-        let kr = withUnsafeMutablePointer(to: &info) {
+            MemoryLayout<vm_statistics_data_t>.size / MemoryLayout<integer_t>.size)
+
+        let kr = withUnsafeMutablePointer(to: &vmStat) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO),
-                          $0, &count)
+                host_statistics(hostPort, HOST_VM_INFO, $0, &count)
             }
         }
+
         guard kr == KERN_SUCCESS else { return 0 }
-        let total = Int64(ProcessInfo.processInfo.physicalMemory)
-        return max(0, total - Int64(info.resident_size))
+
+        // free_count = pages immediately available
+        // inactive_count = pages holding old data, reclaimable under pressure
+        let freePages     = Int64(vmStat.free_count)
+        let inactivePages = Int64(vmStat.inactive_count)
+        let pageBytes     = Int64(pagesize)
+
+        return (freePages + inactivePages) * pageBytes
     }
 
-    private func isLowMemory() -> Bool { getFreeRam() < 200 * 1024 * 1024 }
+    private func getMemoryPressureLevel() -> Int {
+        var pagesize: vm_size_t = 0
+        let hostPort = mach_host_self()
+        host_page_size(hostPort, &pagesize)
+
+        var vmStat = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+
+        let kr = withUnsafeMutablePointer(to: &vmStat) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(hostPort, HOST_VM_INFO64, $0, &count)
+            }
+        }
+
+        guard kr == KERN_SUCCESS else { return 0 }
+
+        let pageBytes      = UInt64(pagesize)
+        let freeBytes      = UInt64(vmStat.free_count) * pageBytes
+        let compressedBytes = UInt64(vmStat.compressor_page_count) * pageBytes
+        let totalBytes     = UInt64(ProcessInfo.processInfo.physicalMemory)
+
+        // Pressure ratio: how much is compressed + used vs total
+        let usedRatio = 1.0 - (Double(freeBytes) / Double(totalBytes))
+        let compressionRatio = Double(compressedBytes) / Double(totalBytes)
+
+        if usedRatio > 0.90 || compressionRatio > 0.30 { return 2 }  // critical
+        if usedRatio > 0.75 || compressionRatio > 0.15 { return 1 }  // warning
+        return 0                                                        // normal
+    }
+
+    // ─── isLowMemory — uses pressure level now ────────────────────────────────────
+
+    private func isLowMemory() -> Bool {
+        return getMemoryPressureLevel() >= 1
+    }
 
     private func getThermalStatus() -> Int {
         switch ProcessInfo.processInfo.thermalState {
