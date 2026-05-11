@@ -28,6 +28,8 @@ class OnDeviceEngine implements InferenceEngine {
 
   OnDeviceRuntime _currentRuntime = OnDeviceRuntime.mediaPipe;
 
+  OnDeviceRuntime get currentRuntime => _currentRuntime;
+
   // ─── Initialize ────────────────────────────────────────────────────────────
 
   @override

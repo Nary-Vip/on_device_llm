@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:on_dev_llm/core/app_scope.dart';
 import 'package:on_dev_llm/core/engine_router.dart';
@@ -24,11 +26,15 @@ class _ChatScreenState extends State<ChatScreen> {
   late final EngineRouter _router;
   late final OnDeviceEngine _onDevice;
 
+  OnDeviceRuntime _activeRuntime = OnDeviceRuntime.mediaPipe;
+  bool _runtimeSwitching = false;
+
   @override
   void initState() {
     super.initState();
     _router = context.getInheritedWidgetOfExactType<AppScope>()!.router;
     _onDevice = context.getInheritedWidgetOfExactType<AppScope>()!.onDevice;
+    _activeRuntime = _onDevice.currentRuntime;
     _checkModelStatus();
     _waitForDeviceReady();
   }
@@ -50,8 +56,8 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete model?'),
-        content: const Text(
-          'This will remove the on-device model (~1.5 GB). '
+        content: Text(
+          'This will remove the ${_activeRuntime == OnDeviceRuntime.litert ? "Gemma 4 E2B (~2.5 GB)" : "Gemma 3 1B (~700 MB)"} '
           'You can re-download it anytime.',
         ),
         actions: [
@@ -191,6 +197,62 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _switchRuntime(OnDeviceRuntime runtime) async {
+    if (_runtimeSwitching || _generating || runtime == _activeRuntime) return;
+
+    // Check if the target model is already downloaded
+    final alreadyDownloaded = await _onDevice.isModelDownloaded(
+      runtime: runtime,
+    );
+
+    setState(() {
+      _activeRuntime = runtime;
+      _runtimeSwitching = true;
+      _forceCloud = true; // use cloud while new engine loads
+    });
+
+    if (alreadyDownloaded) {
+      // Model cached — just reinitialise, no loading screen needed
+      try {
+        await _onDevice.initialize(runtime: runtime);
+        if (mounted) {
+          setState(() {
+            _runtimeSwitching = false;
+            _modelDownloaded = true;
+            _forceCloud = _router.onDevice.status != ModelStatus.ready;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _runtimeSwitching = false;
+            _forceCloud = true;
+          });
+          _showSnack('Failed to switch runtime: $e');
+        }
+      }
+    } else {
+      // Model not cached — reinitialise (starts download) then go to loading screen
+      _onDevice.initialize(runtime: runtime).catchError((e) {
+        debugPrint('[runtime switch] init failed: $e');
+      });
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (_, a1, a2) => ModelLoadingScreen(),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+          transitionDuration: const Duration(milliseconds: 300),
+        ),
+      );
+    }
+  }
+
   // ─── Build ──────────────────────────────────────────────────────────────────
 
   @override
@@ -199,12 +261,24 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: _BackendSwitcher(
-            forceCloud: _forceCloud,
-            onDeviceAvailable: onDeviceAvailable,
-            onChanged: _switchBackend,
-            onLocal: _router.onDevice.modelId,
+          preferredSize: Size.fromHeight(
+            Platform.isAndroid && !_forceCloud ? 96 : 48,
+          ),
+          child: Column(
+            children: [
+              _BackendSwitcher(
+                forceCloud: _forceCloud,
+                onDeviceAvailable: onDeviceAvailable,
+                onChanged: _switchBackend,
+                onLocal: _router.onDevice.modelId,
+              ),
+              if (Platform.isAndroid && !_forceCloud)
+                _RuntimeSwitcher(
+                  activeRuntime: _activeRuntime,
+                  switching: _runtimeSwitching,
+                  onChanged: _switchRuntime,
+                ),
+            ],
           ),
         ),
         title: const Text('Nary LLM'),
@@ -616,6 +690,206 @@ class _BackendPill extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RuntimeSwitcher extends StatelessWidget {
+  final OnDeviceRuntime activeRuntime;
+  final bool switching;
+  final ValueChanged<OnDeviceRuntime> onChanged;
+
+  const _RuntimeSwitcher({
+    required this.activeRuntime,
+    required this.switching,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.swap_horiz_rounded,
+            size: 14,
+            color: scheme.onSurface.withValues(alpha: 0.4),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Runtime:',
+            style: TextStyle(
+              fontSize: 11,
+              color: scheme.onSurface.withValues(alpha: 0.5),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // MediaPipe pill
+          _RuntimePill(
+            label: 'MediaPipe',
+            sublabel: 'Gemma 3 1B',
+            active: activeRuntime == OnDeviceRuntime.mediaPipe,
+            switching: switching,
+            color: const Color(0xFF1A73E8), // Google blue
+            onTap: switching
+                ? null
+                : () => onChanged(OnDeviceRuntime.mediaPipe),
+            scheme: scheme,
+          ),
+          const SizedBox(width: 6),
+
+          // LiteRT pill
+          _RuntimePill(
+            label: 'LiteRT-LM',
+            sublabel: 'Gemma 4 E2B',
+            active: activeRuntime == OnDeviceRuntime.litert,
+            switching: switching,
+            color: const Color(0xFF34A853), // Google green
+            onTap: switching ? null : () => onChanged(OnDeviceRuntime.litert),
+            scheme: scheme,
+          ),
+
+          const Spacer(),
+
+          // Spinning indicator while switching
+          if (switching)
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                color: scheme.primary,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RuntimePill extends StatelessWidget {
+  final String label;
+  final String sublabel;
+  final bool active;
+  final bool switching;
+  final Color color;
+  final VoidCallback? onTap;
+  final ColorScheme scheme;
+
+  const _RuntimePill({
+    required this.label,
+    required this.sublabel,
+    required this.active,
+    required this.switching,
+    required this.color,
+    required this.onTap,
+    required this.scheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: active
+              ? color.withValues(alpha: 0.12)
+              : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? color : Colors.transparent,
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Coloured dot
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: active
+                    ? color
+                    : scheme.onSurface.withValues(alpha: 0.25),
+              ),
+            ),
+            const SizedBox(width: 5),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                    color: active
+                        ? color
+                        : scheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+                Text(
+                  sublabel,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: active
+                        ? color.withValues(alpha: 0.7)
+                        : scheme.onSurface.withValues(alpha: 0.35),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Switching banner ─────────────────────────────────────────────────────────
+
+class _SwitchingBanner extends StatelessWidget {
+  final OnDeviceRuntime runtime;
+  const _SwitchingBanner({required this.runtime});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = runtime == OnDeviceRuntime.litert
+        ? 'Switching to LiteRT-LM (Gemma 4)…'
+        : 'Switching to MediaPipe (Gemma 3)…';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: scheme.tertiaryContainer.withValues(alpha: 0.6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              color: scheme.onTertiaryContainer,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: TextStyle(fontSize: 12, color: scheme.onTertiaryContainer),
+          ),
+        ],
       ),
     );
   }
