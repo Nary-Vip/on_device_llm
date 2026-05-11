@@ -24,7 +24,14 @@ import android.util.Log
 import android.app.ActivityManager
 import android.os.Build
 import android.os.PowerManager
-
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.Contents
 
 class InferencePlugin : FlutterPlugin, MethodCallHandler {
 
@@ -47,6 +54,9 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
     // LlmInferenceSession = per-conversation session (recreated each request)
     private var llmInference: LlmInference? = null
     private var session: LlmInferenceSession? = null
+    private var liteRtEngine: Engine? = null
+
+    private var activeRuntime: String = "mediapipe"
 
     @Volatile private var eventSink: EventChannel.EventSink? = null
     @Volatile private var progressSink: EventChannel.EventSink? = null
@@ -106,12 +116,16 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
         val source      = call.argument<String>("source")      ?: "download"
         val downloadUrl = call.argument<String>("downloadUrl") ?: ""
         val hfToken = call.argument<String>("hf_token") ?: ""
+        val runtime     = call.argument<String>("runtime")     ?: "mediapipe" 
 
         scope.launch {
             try {
-                // Nary check this token
-                val modelFile = resolveModel(modelId, source, downloadUrl, hfToken)
-                buildEngine(modelFile.absolutePath)
+                activeRuntime = runtime 
+                val modelFile = resolveModel(modelId, source, downloadUrl, hfToken, runtime)
+                when (runtime) {
+                    "litert"    -> buildLiteRtEngine(modelFile.absolutePath)
+                    else        -> buildMediaPipeEngine(modelFile.absolutePath)
+                }
                 withContext(Dispatchers.Main) { result.success(null) }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -127,45 +141,74 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
         val prompt    = call.argument<String>("prompt")    ?: return result.error("ARGS", "prompt missing", null)
         val maxTokens = call.argument<Int>("maxTokens")    ?: 512
 
-        // Acknowledge immediately — tokens stream back via EventChannel
         result.success(null)
 
         scope.launch(inferenceDispatcher) {
-            val engine = llmInference ?: run {
-                sendError("LLM engine not initialised")
-                return@launch
+            when (activeRuntime) {
+                "litert" -> handleLiteRtGeneration(prompt)
+                else     -> handleMediaPipeGeneration(prompt, maxTokens)
             }
+        }
+    }
 
-            try {
-                // Create a fresh session for this request
-                if (session == null) {
-                    session = LlmInferenceSession.createFromOptions(
-                        engine,
-                        LlmInferenceSessionOptions.builder()
-                            .setTopK(40)
-                            .setTemperature(0.8f)
-                            .setTopP(0.95f)
-                            .setRandomSeed(42)
-                            .build()
-                    )
+    private fun handleMediaPipeGeneration(prompt: String, maxTokens: Int) {
+        val engine = llmInference ?: run { sendError("MediaPipe engine not initialised"); return }
+        try {
+            session?.close()
+            session = LlmInferenceSession.createFromOptions(
+                engine,
+                LlmInferenceSessionOptions.builder()
+                    .setTopK(40)
+                    .setTemperature(0.8f)
+                    .setTopP(0.95f)
+                    .setRandomSeed(42)
+                    .build()
+            )
+            session!!.addQueryChunk(prompt)
+            session!!.generateResponseAsync { partialResult: String, done: Boolean ->
+                mainHandler.post {
+                    eventSink?.success(mapOf("token" to partialResult, "done" to done))
                 }
+            }
+        } catch (e: Exception) {
+            sendError(e.message ?: "MediaPipe generation failed")
+        }
+    }
 
-                val currentSession = session!!
-
-                // Feed the prompt
-                currentSession.addQueryChunk(prompt)
-
-                // Stream — callback fires on MediaPipe's internal thread
-                currentSession.generateResponseAsync { partialResult: String, done: Boolean ->
-                    mainHandler.post {
-                        eventSink?.success(
-                            mapOf("token" to partialResult, "done" to done)
-                        )
+    private fun handleLiteRtGeneration(prompt: String) {
+        val eng = liteRtEngine ?: run { sendError("LiteRT engine not initialised"); return }
+        try {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            eng.createConversation(
+                ConversationConfig(
+                    samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.8)
+                )
+            ).use { conversation ->
+                conversation.sendMessageAsync(
+                    Message.of(prompt),
+                    object : MessageCallback {
+                        override fun onMessage(message: Message) {
+                            val text = message.toString()
+                            mainHandler.post {
+                                eventSink?.success(mapOf("token" to text, "done" to false))
+                            }
+                        }
+                        override fun onDone() {
+                            mainHandler.post {
+                                eventSink?.success(mapOf("token" to "", "done" to true))
+                            }
+                            latch.countDown()
+                        }
+                        override fun onError(throwable: Throwable) {
+                            sendError(throwable.message ?: "LiteRT generation failed")
+                            latch.countDown()
+                        }
                     }
-                }
-            } catch (e: Exception) {
-                sendError(e.message ?: "Generation failed")
+                )
+                latch.await()
             }
+        } catch (e: Exception) {
+            sendError(e.message ?: "LiteRT generation failed")
         }
     }
 
@@ -176,9 +219,11 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
         source: String,
         downloadUrl: String,
         hfToken: String,
+        runtime: String, 
     ): File = withContext(Dispatchers.IO) {
+        val ext = if (runtime == "litert") "litertlm" else "task"
         val modelsDir = File(context.filesDir, "models").also { it.mkdirs() }
-        val dest = File(modelsDir, "$modelId.task")
+        val dest = File(modelsDir, "$modelId.$ext")
 
         if (dest.exists()) {
             sendProgress(1.0, "loading")
@@ -200,7 +245,7 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
                     )
                 }
 
-                val tmp = File(modelsDir, "$modelId.task.tmp")
+                val tmp = File(modelsDir, "$modelId.$ext.tmp")
 
                 val client = OkHttpClient.Builder()
                     .followRedirects(true)
@@ -269,23 +314,26 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
     }
 
     // ─── Engine build ────────────────────────────────────────────────────────
-
-    private suspend fun buildEngine(modelPath: String) = withContext(inferenceDispatcher) {
-        session?.close()
-        session = null
+    private suspend fun buildMediaPipeEngine(modelPath: String) = withContext(inferenceDispatcher) {
+        session?.close(); session = null
         llmInference?.close()
+        llmInference = LlmInference.createFromOptions(
+            context,
+            LlmInferenceOptions.builder()
+                .setModelPath(modelPath)
+                .setMaxTokens(1024)
+                .setPreferredBackend(LlmInference.Backend.CPU)
+                .build()
+        )
+    }
 
-        val options = LlmInferenceOptions.builder()
-            .setModelPath(modelPath)
-            .setMaxTokens(1024)
-            .setPreferredBackend(LlmInference.Backend.CPU)
-            .build()
-
-        llmInference = LlmInference.createFromOptions(context, options)
+    private suspend fun buildLiteRtEngine(modelPath: String) = withContext(inferenceDispatcher) {
+        liteRtEngine?.close()
+        liteRtEngine = Engine(EngineConfig(modelPath = modelPath, backend = Backend.CPU()))
+            .also { it.initialize() }
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
-
     private fun sendProgress(progress: Double, phase: String, downloadedBytes: Long = 0, totalBytes: Long = 0) {
         mainHandler.post {
             progressSink?.success(mapOf("progress" to progress, "phase" to phase, "downloadedBytes" to downloadedBytes, "totalBytes" to totalBytes))
@@ -304,6 +352,7 @@ class InferencePlugin : FlutterPlugin, MethodCallHandler {
             session = null
             llmInference?.close()
             llmInference = null
+            liteRtEngine?.close(); liteRtEngine = null
         }
     }
 

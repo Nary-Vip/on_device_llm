@@ -537,7 +537,9 @@ class _BackendSwitcher extends StatelessWidget {
             duration: const Duration(milliseconds: 200),
             child: Text(
               key: ValueKey(isCloud ? 'cloud' : 'local'),
-              isCloud ? 'Gemini Flash' : onLocal.substring(0, 15),
+              isCloud
+                  ? 'Gemini Flash'
+                  : onLocal.substring(0, onLocal.length.clamp(0, 15)),
               style: TextStyle(
                 fontSize: 11,
                 color: scheme.onSurface.withValues(alpha: 0.55),

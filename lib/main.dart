@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:on_dev_llm/core/app_scope.dart';
 import 'package:on_dev_llm/core/engine_router.dart';
+import 'package:on_dev_llm/core/enums.dart';
 import 'package:on_dev_llm/engine/cloud_engine.dart';
 import 'package:on_dev_llm/platform/on_device_engine.dart';
 import 'package:on_dev_llm/view/chat_screen.dart';
@@ -16,7 +17,7 @@ void main() async {
 
   await cloud.initialize();
 
-  onDevice.initialize().catchError((e) {
+  onDevice.initialize(runtime: OnDeviceRuntime.litert).catchError((e) {
     debugPrint('[main] OnDevice init failed (will use cloud): $e');
   });
 

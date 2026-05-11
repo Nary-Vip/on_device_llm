@@ -26,17 +26,21 @@ class OnDeviceEngine implements InferenceEngine {
   @override
   ModelStatus get status => _status;
 
+  OnDeviceRuntime _currentRuntime = OnDeviceRuntime.mediaPipe;
+
   // ─── Initialize ────────────────────────────────────────────────────────────
 
   @override
-  Future<void> initialize() async {
+  Future<void> initialize({OnDeviceRuntime runtime = OnDeviceRuntime.mediaPipe}) async {
     _status = ModelStatus.loading;
+    _currentRuntime = runtime;
     try {
       await _methodChannel.invokeMethod<Map>('initialize', {
-        'modelId': _modelId(),
+        'modelId': _modelIdFor(runtime),
         'source': 'download',
-        'downloadUrl': _downloadUrl(),
+        'downloadUrl': _downloadUrlFor(runtime),
         'hf_token': '***REMOVED_HF_TOKEN***',
+        'runtime' : runtime == OnDeviceRuntime.litert ? 'litert' : 'mediapipe',
       });
       _status = ModelStatus.ready;
       _log.i('OnDeviceEngine: model ready');
@@ -105,13 +109,17 @@ class OnDeviceEngine implements InferenceEngine {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  String _modelId() => 'Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048';
+  String _modelIdFor(OnDeviceRuntime runtime) => runtime == OnDeviceRuntime.litert
+    ? 'gemma-4-E2B-it'
+    : 'Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048';
 
   @override
-  String get modelId => _modelId();
+  String get modelId => _modelIdFor(_currentRuntime);
 
-  String _downloadUrl() =>
-      'https://huggingface.co/litert-community/Gemma3-1B-IT'
+String _downloadUrlFor(OnDeviceRuntime runtime) => runtime == OnDeviceRuntime.litert
+    ? 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm'
+      '/resolve/main/gemma-4-E2B-it.litertlm'
+    : 'https://huggingface.co/litert-community/Gemma3-1B-IT'
       '/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task';
 
   // Rough token count — 1 token ≈ 4 characters
@@ -132,32 +140,34 @@ class OnDeviceEngine implements InferenceEngine {
         );
       });
 
-  Future<File> _modelFile() async {
+  Future<File> _modelFile(OnDeviceRuntime runtime) async {
     final Directory dir;
     if (Platform.isIOS) {
       dir = await getApplicationDocumentsDirectory();
     } else {
       dir = await getApplicationSupportDirectory();
     }
-    return File('${dir.path}/models/${_modelId()}.task');
+    final ext = runtime == OnDeviceRuntime.litert ? 'litertlm' : 'task';
+
+    return File('${dir.path}/models/${_modelIdFor(runtime)}.$ext');
   }
 
   @override
-  Future<bool> isModelDownloaded() async {
-    final file = await _modelFile();
+  Future<bool> isModelDownloaded({OnDeviceRuntime? runtime}) async {
+    final file = await _modelFile(runtime ?? _currentRuntime);
     return file.existsSync();
   }
 
   @override
   Future<void> deleteModel() async {
-    final file = await _modelFile();
+    final file = await _modelFile(_currentRuntime);
     if (file.existsSync()) file.deleteSync();
     _status = ModelStatus.notLoaded;
   }
 
   @override
   Future<int?> modelSizeBytes() async {
-    final file = await _modelFile();
+    final file = await _modelFile(_currentRuntime);
     return file.existsSync() ? file.lengthSync() : null;
   }
 }

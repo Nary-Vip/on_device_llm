@@ -177,7 +177,8 @@ class _ModelLoadingScreenState extends State<ModelLoadingScreen>
   }
 
   Widget _buildSubtitle(ColorScheme scheme) {
-    String sizeLabel = 'Gemma 3 1B';
+    final onDevice = context.getInheritedWidgetOfExactType<AppScope>()!.onDevice;
+    String sizeLabel = onDevice.modelId;
     if (_totalBytes > 0) {
       sizeLabel += ' · ${_formatBytes(_totalBytes)}';
       if (_phase == ModelPhase.downloading) {
