@@ -32,6 +32,13 @@ class EngineRouter {
     this.respectLowPowerMode = true,
   });
 
+  final _routingController = StreamController<bool>.broadcast();
+  Stream<bool> get onRoutingDecision => _routingController.stream;
+
+  void dispose() {
+    _routingController.close();
+  }
+
   // ─── Public API ────────────────────────────────────────────────────────────
 
   /// Stream tokens; falls back to cloud if on-device errors.
@@ -40,7 +47,9 @@ class EngineRouter {
     int maxTokens = 512,
     bool forceCloud = false,
   }) async* {
-    if (!forceCloud && await _shouldUseOnDevice()) {
+    final useOnDevice = !forceCloud && await _shouldUseOnDevice();
+    _routingController.add(useOnDevice);
+    if (useOnDevice) {
       try {
         yield* onDevice.generateStream(prompt, maxTokens: maxTokens);
         return;
@@ -121,9 +130,12 @@ class EngineRouter {
 
       if (Platform.isIOS) {
         final freeRam = await _channel.invokeMethod<int>('getFreeRam') ?? 0;
-        final isLowMemory = await _channel.invokeMethod<bool>('isLowMemory') ?? false;
-        _log.d('iOS free RAM: ${(freeRam / 1024 / 1024).toStringAsFixed(0)} MB'
-              ' | Low memory: $isLowMemory');
+        final isLowMemory =
+            await _channel.invokeMethod<bool>('isLowMemory') ?? false;
+        _log.d(
+          'iOS free RAM: ${(freeRam / 1024 / 1024).toStringAsFixed(0)} MB'
+          ' | Low memory: $isLowMemory',
+        );
         if (isLowMemory) return false;
         return freeRam >= minFreeRamBytes;
       }

@@ -214,7 +214,7 @@ class _ConfigCard extends StatelessWidget {
             Row(children: [
               _BackendChip(
                 label: '📱 On-device',
-                sublabel: onDeviceModel,
+                sublabel: onDeviceModel.substring(0, 20),
                 active: selected == InferenceBackend.onDevice,
                 enabled: onDeviceReady,
                 onTap: onDeviceReady

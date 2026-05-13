@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:on_dev_llm/core/app_scope.dart';
 import 'package:on_dev_llm/core/engine_router.dart';
@@ -17,7 +19,7 @@ void main() async {
 
   await cloud.initialize();
 
-  onDevice.initialize(runtime: OnDeviceRuntime.litert).catchError((e) {
+  onDevice.initialize(runtime: Platform.isAndroid? OnDeviceRuntime.litert: OnDeviceRuntime.mediaPipe).catchError((e) {
     debugPrint('[main] OnDevice init failed (will use cloud): $e');
   });
 

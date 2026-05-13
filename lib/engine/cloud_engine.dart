@@ -17,7 +17,7 @@ class CloudEngine implements InferenceEngine {
   final _log = Logger();
   ModelStatus _status = ModelStatus.notLoaded;
 
-  CloudEngine({required this.apiKey, this.model = 'gemini-2.5-flash-lite'});
+  CloudEngine({required this.apiKey, this.model = 'gemma-4-26b-a4b-it'});
 
   @override
   InferenceBackend get backend => InferenceBackend.cloud;

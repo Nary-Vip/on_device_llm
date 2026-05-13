@@ -514,12 +514,14 @@ private class AppleIntelligenceBackend: OnDeviceBackend {
 // ─── Tier 2 — MediaPipe backend ───────────────────────────────────────────────
 
 actor MediaPipeBackend: OnDeviceBackend {
-    private let inference: LlmInference
+    private let modelPath: String 
 
     init(modelPath: String) throws {
+        self.modelPath = modelPath
+        // validate on init — throws if path is bad
         let options = LlmInference.Options(modelPath: modelPath)
         options.maxTokens = 1024
-        self.inference = try LlmInference(options: options)
+        _ = try LlmInference(options: options)
     }
 
     func prewarm() async {}
@@ -530,7 +532,7 @@ actor MediaPipeBackend: OnDeviceBackend {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let stream = await self.generateStream(for: prompt)
+                    let stream = try await self.generateStream(for: prompt)
                     for try await partial in stream {
                         continuation.yield(partial)
                     }
@@ -543,8 +545,11 @@ actor MediaPipeBackend: OnDeviceBackend {
     }
 
     // Actor-isolated helper — this is where LlmInference is safely called
-    private func generateStream(for prompt: String) -> AsyncThrowingStream<String, Error> {
-        inference.generateResponseAsync(inputText: prompt)
+    private func generateStream(for prompt: String) throws -> AsyncThrowingStream<String, Error> {
+        let options = LlmInference.Options(modelPath: modelPath)  // ← now compiles
+        options.maxTokens = 1024
+        let inference = try LlmInference(options: options)
+        return inference.generateResponseAsync(inputText: prompt)
     }
 
     nonisolated func close() {}

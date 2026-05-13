@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -29,6 +30,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   OnDeviceRuntime _activeRuntime = OnDeviceRuntime.mediaPipe;
   bool _runtimeSwitching = false;
+  StreamSubscription<bool>? _routingSub;
+  bool _actuallyUsingCloud = false;
 
   @override
   void initState() {
@@ -38,6 +41,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _activeRuntime = _onDevice.currentRuntime;
     _checkModelStatus();
     _waitForDeviceReady();
+    _routingSub = _router.onRoutingDecision.listen((usingOnDevice) {
+      if (mounted) {
+        setState(() => _actuallyUsingCloud = !usingOnDevice);
+      }
+    });
   }
 
   Future<void> _waitForDeviceReady() async {
@@ -259,6 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final onDeviceAvailable = _router.onDevice.status == ModelStatus.ready;
+    final effectiveCloud = _forceCloud || _actuallyUsingCloud;
     return Scaffold(
       appBar: AppBar(
         bottom: PreferredSize(
@@ -268,7 +277,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             children: [
               _BackendSwitcher(
-                forceCloud: _forceCloud,
+                forceCloud: effectiveCloud,
                 onDeviceAvailable: onDeviceAvailable,
                 onChanged: _switchBackend,
                 onLocal: _router.onDevice.modelId,
@@ -311,15 +320,55 @@ class _ChatScreenState extends State<ChatScreen> {
             tooltip: 'Benchmark',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const BenchmarkScreen(),
-              ),
+              MaterialPageRoute(builder: (_) => const BenchmarkScreen()),
             ),
           ),
         ],
       ),
       body: Column(
         children: [
+          // Add this above the ListView in body Column:
+          if (_actuallyUsingCloud && !_forceCloud) ...[
+            Material(
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.onTertiaryContainer,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Routed to cloud — device conditions not met',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onTertiaryContainer,
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => setState(() => _actuallyUsingCloud = false),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 14,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onTertiaryContainer,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
