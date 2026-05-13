@@ -98,6 +98,7 @@ class OnDeviceEngine implements InferenceEngine {
       promptTokens: _estimateTokens(prompt),
       completionTokens: tokenCount,
       backend: InferenceBackend.onDevice,
+      modelId: modelId,
     );
   }
 

@@ -16,6 +16,7 @@ class InferenceResult {
   final int promptTokens;
   final int completionTokens;
   final InferenceBackend backend;
+  final String modelId;
 
   const InferenceResult({
     required this.fullText,
@@ -24,6 +25,7 @@ class InferenceResult {
     required this.promptTokens,
     required this.completionTokens,
     required this.backend,
+    required this.modelId,
   });
 }
 

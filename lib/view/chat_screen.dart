@@ -5,6 +5,7 @@ import 'package:on_dev_llm/core/app_scope.dart';
 import 'package:on_dev_llm/core/engine_router.dart';
 import 'package:on_dev_llm/core/enums.dart';
 import 'package:on_dev_llm/platform/on_device_engine.dart';
+import 'package:on_dev_llm/view/benchmark_screen.dart';
 import 'package:on_dev_llm/view/model_loading_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -305,12 +306,15 @@ class _ChatScreenState extends State<ChatScreen> {
               tooltip: 'Download on-device model',
               onPressed: _generating ? null : _downloadModel,
             ),
-
-          // ── Benchmark ──
           IconButton(
             icon: const Icon(Icons.bar_chart_rounded),
             tooltip: 'Benchmark',
-            onPressed: () => Navigator.pushNamed(context, '/benchmark'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const BenchmarkScreen(),
+              ),
+            ),
           ),
         ],
       ),

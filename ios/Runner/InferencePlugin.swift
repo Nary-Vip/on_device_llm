@@ -2,17 +2,19 @@ import Flutter
 import Foundation
 import MediaPipeTasksGenAI
 import Darwin
+
 #if canImport(FoundationModels)
 import FoundationModels
+#endif
 
-private protocol OnDeviceBackend {
+private protocol OnDeviceBackend: Sendable  {
     func prewarm() async
     func streamResponse(to prompt: String) -> AsyncThrowingStream<String, Error>
     func close()
 }
 
 // ─── InferencePlugin ─────────────────────────────────────────────────────────
-
+@MainActor
 public class InferencePlugin: NSObject, FlutterPlugin {
 
     static let methodChannelName   = "com.poc.ondevicellm/inference"
@@ -136,9 +138,9 @@ public class InferencePlugin: NSObject, FlutterPlugin {
     // ─── startGeneration ───────────────────────────────────────────────────
 
     private func handleStartGeneration(_ call: FlutterMethodCall,
-                                       result: @escaping FlutterResult) {
+                                    result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
-              let prompt = args["prompt"] as? String else {
+            let prompt = args["prompt"] as? String else {
             result(FlutterError(code: "ARGS", message: "prompt missing", details: nil))
             return
         }
@@ -148,32 +150,31 @@ public class InferencePlugin: NSObject, FlutterPlugin {
             return
         }
         guard !isGenerating else {
-        result(
-            FlutterError(
-                code: "BUSY",
-                message: "Generation already in progress",
-                details: nil
-                )
-            )
+            result(FlutterError(code: "BUSY",
+                                message: "Generation already in progress",
+                                details: nil))
             return
         }
 
         result(nil) // acknowledge immediately
         isGenerating = true
         generationTask?.cancel()
-        generationTask = Task {
+        generationTask = Task { [backend] in
             do {
                 for try await partial in backend.streamResponse(to: prompt) {
                     guard !Task.isCancelled else { break }
                     sendToken(partial, done: false)
                 }
-                sendToken("", done: true)
-                self.isGenerating = false
+                if !Task.isCancelled {
+                    sendToken("", done: true)
+                }
             } catch is CancellationError {
-                self.isGenerating = false
+                // cancelled — no-op
             } catch {
-                self.isGenerating = false
                 sendError("Generation failed: \(error.localizedDescription)")
+            }
+            await MainActor.run {
+                self.isGenerating = false
             }
         }
     }
@@ -363,10 +364,13 @@ public class InferencePlugin: NSObject, FlutterPlugin {
 
     private func teardown() {
         generationTask?.cancel()
-        generationTask = nil
-        activeBackend?.close()
-        activeBackend = nil
-        isGenerating = false
+        // Don't nil activeBackend here — let the task observe cancellation first
+        Task { @MainActor in
+            await generationTask?.value   // wait for cooperative exit
+            activeBackend?.close()
+            activeBackend = nil
+            generationTask = nil
+        }
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────
@@ -504,35 +508,29 @@ private class AppleIntelligenceBackend: OnDeviceBackend {
         }
     }
 
-    func close() {
-        // LanguageModelSession has no explicit close — ARC handles it
-    }
+    nonisolated func close() {}
 }
 
 // ─── Tier 2 — MediaPipe backend ───────────────────────────────────────────────
 
-
-private class MediaPipeBackend: OnDeviceBackend {
-    private let modelPath: String 
+actor MediaPipeBackend: OnDeviceBackend {
+    private let inference: LlmInference
 
     init(modelPath: String) throws {
-        self.modelPath = modelPath
         let options = LlmInference.Options(modelPath: modelPath)
         options.maxTokens = 1024
-        _ = try LlmInference(options: options)
+        self.inference = try LlmInference(options: options)
     }
 
     func prewarm() async {}
 
-    func streamResponse(to prompt: String) -> AsyncThrowingStream<String, Error> {
+    // nonisolated so it satisfies the protocol without crossing isolation boundary.
+    // The actor hop happens inside the Task via `await self.runInference(...)`.
+    nonisolated func streamResponse(to prompt: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let options = LlmInference.Options(modelPath: self.modelPath)
-                    options.maxTokens = 1024
-                    let inference = try LlmInference(options: options)
-
-                    let stream = inference.generateResponseAsync(inputText: prompt)
+                    let stream = await self.generateStream(for: prompt)
                     for try await partial in stream {
                         continuation.yield(partial)
                     }
@@ -544,7 +542,12 @@ private class MediaPipeBackend: OnDeviceBackend {
         }
     }
 
-    func close() {}
+    // Actor-isolated helper — this is where LlmInference is safely called
+    private func generateStream(for prompt: String) -> AsyncThrowingStream<String, Error> {
+        inference.generateResponseAsync(inputText: prompt)
+    }
+
+    nonisolated func close() {}
 }
 
 // ─── Download progress delegate ───────────────────────────────────────────────

@@ -130,6 +130,7 @@ class CloudEngine implements InferenceEngine {
       promptTokens: _estimateTokens(prompt),
       completionTokens: tokenCount,
       backend: InferenceBackend.cloud,
+      modelId: modelId,
     );
   }
 
