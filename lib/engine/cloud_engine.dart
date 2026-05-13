@@ -173,17 +173,17 @@ class CloudEngine implements InferenceEngine {
   int _estimateTokens(String text) => (text.length / 4).round();
 
   @override
-  Future<void> deleteModel() {
+  Future<void> deleteModel({OnDeviceRuntime? runtime}) async {
     throw UnimplementedError();
   }
 
   @override
-  Future<bool> isModelDownloaded() {
+  Future<bool> isModelDownloaded({OnDeviceRuntime? runtime}) async {
     throw UnimplementedError();
   }
 
   @override
-  Future<int?> modelSizeBytes() async {
+  Future<int?> modelSizeBytes({OnDeviceRuntime? runtime}) async {
     throw UnimplementedError();
   }
 }

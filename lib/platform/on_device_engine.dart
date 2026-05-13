@@ -33,7 +33,9 @@ class OnDeviceEngine implements InferenceEngine {
   // ─── Initialize ────────────────────────────────────────────────────────────
 
   @override
-  Future<void> initialize({OnDeviceRuntime runtime = OnDeviceRuntime.mediaPipe}) async {
+  Future<void> initialize({
+    OnDeviceRuntime runtime = OnDeviceRuntime.mediaPipe,
+  }) async {
     _status = ModelStatus.loading;
     _currentRuntime = runtime;
     try {
@@ -42,7 +44,7 @@ class OnDeviceEngine implements InferenceEngine {
         'source': 'download',
         'downloadUrl': _downloadUrlFor(runtime),
         'hf_token': '***REMOVED_HF_TOKEN***',
-        'runtime' : runtime == OnDeviceRuntime.litert ? 'litert' : 'mediapipe',
+        'runtime': runtime == OnDeviceRuntime.litert ? 'litert' : 'mediapipe',
       });
       _status = ModelStatus.ready;
       _log.i('OnDeviceEngine: model ready');
@@ -112,18 +114,20 @@ class OnDeviceEngine implements InferenceEngine {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  String _modelIdFor(OnDeviceRuntime runtime) => runtime == OnDeviceRuntime.litert
-    ? 'gemma-4-E2B-it'
-    : 'Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048';
+  String _modelIdFor(OnDeviceRuntime runtime) =>
+      runtime == OnDeviceRuntime.litert
+      ? 'gemma-4-E2B-it'
+      : 'Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048';
 
   @override
   String get modelId => _modelIdFor(_currentRuntime);
 
-String _downloadUrlFor(OnDeviceRuntime runtime) => runtime == OnDeviceRuntime.litert
-    ? 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm'
-      '/resolve/main/gemma-4-E2B-it.litertlm'
-    : 'https://huggingface.co/litert-community/Gemma3-1B-IT'
-      '/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task';
+  String _downloadUrlFor(OnDeviceRuntime runtime) =>
+      runtime == OnDeviceRuntime.litert
+      ? 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm'
+            '/resolve/main/gemma-4-E2B-it.litertlm'
+      : 'https://huggingface.co/litert-community/Gemma3-1B-IT'
+            '/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task';
 
   // Rough token count — 1 token ≈ 4 characters
   int _estimateTokens(String text) => (text.length / 4).round();
@@ -162,15 +166,16 @@ String _downloadUrlFor(OnDeviceRuntime runtime) => runtime == OnDeviceRuntime.li
   }
 
   @override
-  Future<void> deleteModel() async {
-    final file = await _modelFile(_currentRuntime);
+  Future<void> deleteModel({OnDeviceRuntime? runtime}) async {
+    final target = runtime ?? _currentRuntime;
+    final file = await _modelFile(target);
     if (file.existsSync()) file.deleteSync();
-    _status = ModelStatus.notLoaded;
+    if (target == _currentRuntime) _status = ModelStatus.notLoaded;
   }
 
   @override
-  Future<int?> modelSizeBytes() async {
-    final file = await _modelFile(_currentRuntime);
+  Future<int?> modelSizeBytes({OnDeviceRuntime? runtime}) async {
+    final file = await _modelFile(runtime ?? _currentRuntime);
     return file.existsSync() ? file.lengthSync() : null;
   }
 }

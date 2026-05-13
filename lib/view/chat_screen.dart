@@ -34,6 +34,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _actuallyUsingCloud = false;
 
   @override
+  void dispose() {
+    _routingSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   void initState() {
     super.initState();
     _router = context.getInheritedWidgetOfExactType<AppScope>()!.router;
@@ -56,49 +62,163 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _checkModelStatus() async {
-    final downloaded = await _router.onDevice.isModelDownloaded();
-    if (mounted) setState(() => _modelDownloaded = downloaded);
+    final mediaPipe = await _router.onDevice.isModelDownloaded(
+      runtime: OnDeviceRuntime.mediaPipe,
+    );
+    final liteRt = await _router.onDevice.isModelDownloaded(
+      runtime: OnDeviceRuntime.litert,
+    );
+    if (mounted) setState(() => _modelDownloaded = mediaPipe || liteRt);
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   Future<void> _deleteModel() async {
+    final mediaPipeExists = await _onDevice.isModelDownloaded(
+      runtime: OnDeviceRuntime.mediaPipe,
+    );
+    final liteRtExists = await _onDevice.isModelDownloaded(
+      runtime: OnDeviceRuntime.litert,
+    );
+
+    if (!mediaPipeExists && !liteRtExists) {
+      _showSnack('No models downloaded');
+      return;
+    }
+
+    bool deleteMediaPipe = false;
+    bool deleteLiteRt = false;
+
+    final mediaPipeSize = await _onDevice.modelSizeBytes(
+      runtime: OnDeviceRuntime.mediaPipe,
+    );
+    final liteRtSize = await _onDevice.modelSizeBytes(
+      runtime: OnDeviceRuntime.litert,
+    );
+
+    if (!mounted) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete model?'),
-        content: Text(
-          'This will remove the ${_activeRuntime == OnDeviceRuntime.litert ? "Gemma 4 E2B (~2.5 GB)" : "Gemma 3 1B (~700 MB)"} '
-          'You can re-download it anytime.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Delete models'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select models to remove:',
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(
+                    ctx,
+                  ).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // MediaPipe — Gemma 3 1B
+              if (mediaPipeExists)
+                CheckboxListTile(
+                  value: deleteMediaPipe,
+                  onChanged: (v) =>
+                      setDialogState(() => deleteMediaPipe = v ?? false),
+                  title: const Text('Gemma 3 1B'),
+                  subtitle: Text('MediaPipe · ${mediaPipeSize != null ? _formatBytes(mediaPipeSize) : "~530 MB"}'),
+                  secondary: const Icon(Icons.memory_rounded),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+
+              // LiteRT-LM — Gemma 4 E2B
+              if (liteRtExists)
+                CheckboxListTile(
+                  value: deleteLiteRt,
+                  onChanged: (v) =>
+                      setDialogState(() => deleteLiteRt = v ?? false),
+                  title: const Text('Gemma 4 E2B'),
+                  subtitle: Text('LiteRT-LM · ${liteRtSize != null ? _formatBytes(liteRtSize) : "~2.5 GB"}'),
+                  secondary: const Icon(Icons.auto_awesome_rounded),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+
+              const SizedBox(height: 8),
+              Text(
+                'You can re-download them anytime.',
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(
+                    ctx,
+                  ).colorScheme.onSurface.withValues(alpha: 0.45),
+                ),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Delete'),
-          ),
-        ],
+            FilledButton(
+              onPressed: (deleteMediaPipe || deleteLiteRt)
+                  ? () => Navigator.pop(ctx, true)
+                  : null, // ← disabled until at least one is selected
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
       ),
     );
 
     if (confirmed != true) return;
 
     setState(() => _modelActionInProgress = true);
-    await _router.onDevice.deleteModel();
+
+    final futures = <Future>[];
+    if (deleteMediaPipe) {
+      futures.add(_onDevice.deleteModel(runtime: OnDeviceRuntime.mediaPipe));
+    }
+    if (deleteLiteRt) {
+      futures.add(_onDevice.deleteModel(runtime: OnDeviceRuntime.litert));
+    }
+    await Future.wait(futures);
+
     if (mounted) {
+      final activeDeleted =
+          (_activeRuntime == OnDeviceRuntime.mediaPipe && deleteMediaPipe) ||
+          (_activeRuntime == OnDeviceRuntime.litert && deleteLiteRt);
+
+      final mediaPipeStillExists = await _onDevice.isModelDownloaded(
+        runtime: OnDeviceRuntime.mediaPipe,
+      );
+      final liteRtStillExists = await _onDevice.isModelDownloaded(
+        runtime: OnDeviceRuntime.litert,
+      );
+
+      final anyRemaining = mediaPipeStillExists || liteRtStillExists;
+
       setState(() {
-        _modelDownloaded = false;
+        _modelDownloaded = anyRemaining;
         _modelActionInProgress = false;
-        // Force cloud if on-device was active
-        _forceCloud = true;
+        if (activeDeleted) _forceCloud = true;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Model deleted')));
+
+      final names = [
+        if (deleteMediaPipe) 'Gemma 3 1B',
+        if (deleteLiteRt) 'Gemma 4 E2B',
+      ].join(' & ');
+      _showSnack('$names deleted');
     }
   }
 
@@ -158,7 +278,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       _messages.add(_Message(text: text, isUser: true));
-      _messages.add(_Message(text: '', isUser: false)); // placeholder
+      _messages.add(_Message(text: '', isUser: false));
       _generating = true;
     });
     _scrollToBottom();

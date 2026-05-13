@@ -46,11 +46,11 @@ abstract class InferenceEngine {
   // Collect the full stream + attach metrics (what the benchmark uses)
   Future<InferenceResult> generate(String prompt, {int maxTokens = 512});
 
-  Future<bool> isModelDownloaded();
+  Future<bool> isModelDownloaded({OnDeviceRuntime? runtime}) async => true; 
 
-  Future<void> deleteModel();
+  Future<void> deleteModel({OnDeviceRuntime? runtime}) async {}
 
   String get modelId;
 
-  Future<int?> modelSizeBytes();
+  Future<int?> modelSizeBytes({OnDeviceRuntime? runtime}) async => null;
 }

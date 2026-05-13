@@ -212,24 +212,28 @@ class _ConfigCard extends StatelessWidget {
             Text('Backend', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 10),
             Row(children: [
-              _BackendChip(
-                label: '📱 On-device',
-                sublabel: onDeviceModel.substring(0, 20),
-                active: selected == InferenceBackend.onDevice,
-                enabled: onDeviceReady,
-                onTap: onDeviceReady
-                    ? () => onSelect(InferenceBackend.onDevice)
-                    : null,
-                scheme: scheme,
+              Expanded(
+                child: _BackendChip(
+                  label: '📱 On-device',
+                  sublabel: onDeviceModel.substring(0, onDeviceModel.length.clamp(0, 20)),
+                  active: selected == InferenceBackend.onDevice,
+                  enabled: onDeviceReady,
+                  onTap: onDeviceReady
+                      ? () => onSelect(InferenceBackend.onDevice)
+                      : null,
+                  scheme: scheme,
+                ),
               ),
               const SizedBox(width: 8),
-              _BackendChip(
-                label: '☁️ Cloud',
-                sublabel: cloudModel,
-                active: selected == InferenceBackend.cloud,
-                enabled: true,
-                onTap: () => onSelect(InferenceBackend.cloud),
-                scheme: scheme,
+              Expanded(
+                child: _BackendChip(
+                  label: '☁️ Cloud',
+                  sublabel: cloudModel,
+                  active: selected == InferenceBackend.cloud,
+                  enabled: true,
+                  onTap: () => onSelect(InferenceBackend.cloud),
+                  scheme: scheme,
+                ),
               ),
             ]),
             const SizedBox(height: 14),

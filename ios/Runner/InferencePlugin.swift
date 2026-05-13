@@ -458,7 +458,9 @@ public class InferencePlugin: NSObject, FlutterPlugin {
     // ─── isLowMemory — uses pressure level now ────────────────────────────────────
 
     private func isLowMemory() -> Bool {
-        return getMemoryPressureLevel() >= 1
+        let available = os_proc_available_memory()
+        let thresholdBytes: Int64 = 200 * 1024 * 1024
+        return available < thresholdBytes
     }
 
     private func getThermalStatus() -> Int {
