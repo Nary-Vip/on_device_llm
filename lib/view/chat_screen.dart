@@ -167,7 +167,15 @@ class _ChatScreenState extends State<ChatScreen> {
     Duration? ttft;
     final buffer = StringBuffer();
     InferenceBackend? backend;
+    bool routedMidStream = false;
     final prompt = _buildConversationPrompt(text);
+
+    InferenceBackend? routedBackend;
+    final routingSub = _router.onRoutingDecision.listen((usingOnDevice) {
+      routedBackend = usingOnDevice
+          ? InferenceBackend.onDevice
+          : InferenceBackend.cloud;
+    });
 
     try {
       await for (final chunk in _router.generateStream(
@@ -175,9 +183,16 @@ class _ChatScreenState extends State<ChatScreen> {
         forceCloud: _forceCloud,
       )) {
         ttft ??= sw.elapsed;
-        backend ??= _forceCloud
-            ? InferenceBackend.cloud
-            : InferenceBackend.onDevice;
+        if (backend == null) {
+          backend =
+              routedBackend ??
+              (_forceCloud
+                  ? InferenceBackend.cloud
+                  : InferenceBackend.onDevice);
+        } else if (routedBackend != null && routedBackend != backend) {
+          routedMidStream = true;
+          backend = routedBackend;
+        }
         buffer.write(chunk.text);
         setState(() {
           _messages.last = _Message(
@@ -185,11 +200,13 @@ class _ChatScreenState extends State<ChatScreen> {
             isUser: false,
             ttft: ttft,
             backend: backend,
+            routedMidStream: routedMidStream,
           );
         });
         _scrollToBottom();
       }
     } finally {
+      routingSub.cancel();
       setState(() => _generating = false);
     }
   }
@@ -281,6 +298,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 onDeviceAvailable: onDeviceAvailable,
                 onChanged: _switchBackend,
                 onLocal: _router.onDevice.modelId,
+                onCloud: _router.cloud.modelId,
               ),
               if (Platform.isAndroid && !_forceCloud)
                 _RuntimeSwitcher(
@@ -395,12 +413,14 @@ class _Message {
   final bool isUser;
   final Duration? ttft;
   final InferenceBackend? backend;
+  final bool routedMidStream;
 
   const _Message({
     required this.text,
     required this.isUser,
     this.ttft,
     this.backend,
+    this.routedMidStream = false,
   });
 }
 
@@ -438,7 +458,11 @@ class _MessageBubble extends StatelessWidget {
               Text(message.text, style: const TextStyle(fontSize: 15)),
             if (!isUser && message.ttft != null) ...[
               const SizedBox(height: 6),
-              _MetaBadge(ttft: message.ttft!, backend: message.backend),
+              _MetaBadge(
+                ttft: message.ttft!,
+                backend: message.backend,
+                routedMidStream: message.routedMidStream,
+              ),
             ],
           ],
         ),
@@ -450,13 +474,24 @@ class _MessageBubble extends StatelessWidget {
 class _MetaBadge extends StatelessWidget {
   final Duration ttft;
   final InferenceBackend? backend;
-  const _MetaBadge({required this.ttft, this.backend});
+  final bool routedMidStream;
+  const _MetaBadge({
+    required this.ttft,
+    this.backend,
+    this.routedMidStream = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final label = backend == InferenceBackend.onDevice
-        ? '📱 on-device'
-        : '☁️ cloud';
+    String label;
+    if (routedMidStream) {
+      label = '📱→☁️ fallback';
+    } else {
+      label = backend == InferenceBackend.onDevice
+          ? '📱 on-device'
+          : '☁️ cloud';
+    }
+
     final ms = ttft.inMilliseconds;
     return Text(
       '$label · TTFT ${ms}ms',
@@ -596,12 +631,14 @@ class _BackendSwitcher extends StatelessWidget {
   final bool onDeviceAvailable;
   final ValueChanged<bool> onChanged;
   final String onLocal;
+  final String onCloud;
 
   const _BackendSwitcher({
     required this.forceCloud,
     required this.onDeviceAvailable,
     required this.onChanged,
     required this.onLocal,
+    required this.onCloud,
   });
 
   @override
@@ -665,7 +702,7 @@ class _BackendSwitcher extends StatelessWidget {
             child: Text(
               key: ValueKey(isCloud ? 'cloud' : 'local'),
               isCloud
-                  ? 'Gemini Flash'
+                  ? onCloud.substring(0, onLocal.length.clamp(0, 15))
                   : onLocal.substring(0, onLocal.length.clamp(0, 15)),
               style: TextStyle(
                 fontSize: 11,
